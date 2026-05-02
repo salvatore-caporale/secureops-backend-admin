@@ -3,41 +3,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { nanoid } from 'nanoid';
 
-function soNormalizePhone(phone = '') {
-  const raw = String(phone).trim().replace(/[\s\-().]/g, '');
-  if (raw.startsWith('00')) return '+' + raw.slice(2);
-  return raw;
-}
-
-function soInviteCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const part = () =>
-    Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  return `SO-${part()}-${part()}`;
-}
-
-function soAudit(actor, action, targetType, targetId, metadata = {}) {
-  try {
-    if (typeof audit === 'function') {
-      return audit(actor, action, targetType, targetId, metadata);
-    }
-  } catch {}
-
-  if (typeof db !== 'undefined') {
-    if (!db.audit) db.audit = [];
-    db.audit.unshift({
-      id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      actor,
-      action,
-      targetType,
-      targetId,
-      metadata,
-      createdAt: new Date().toISOString()
-    });
-  }
-}
-
-
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -465,4 +430,4 @@ app.post('/api/app/phone-invites/validate', authApp, (req, res) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`SECUREOPS backend/admin running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`SECUREOPS backend/admin running on http://localhost:${PORT}`));

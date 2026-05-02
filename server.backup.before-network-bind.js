@@ -465,4 +465,4 @@ app.post('/api/app/phone-invites/validate', authApp, (req, res) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`SECUREOPS backend/admin running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`SECUREOPS backend/admin running on http://localhost:${PORT}`));
