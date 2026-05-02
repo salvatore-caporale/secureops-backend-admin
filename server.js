@@ -4,6 +4,95 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { nanoid } from 'nanoid';
 
+
+function inviteRowToObj(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    code: row.code,
+    phone: row.phone,
+    displayName: row.display_name,
+    role: row.role,
+    team: row.team,
+    status: row.status,
+    maxUses: row.max_uses,
+    useCount: row.use_count,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    sentAt: row.sent_at,
+    usedAt: row.used_at,
+    usedBy: row.used_by,
+    smsText: row.sms_text
+  };
+}
+
+function userRowToObj(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    phone: row.phone,
+    role: row.role,
+    team: row.team,
+    status: row.status,
+    createdAt: row.created_at
+  };
+}
+
+function aircraftRowToObj(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type,
+    tail: row.tail,
+    status: row.status,
+    totalFH: Number(row.total_fh || 0),
+    sinceInspection: Number(row.since_inspection || 0),
+    interval: Number(row.interval_hours || 25),
+    inspectionLabel: row.inspection_label,
+    lastFlight: row.last_flight,
+    updatedAt: row.updated_at
+  };
+}
+
+function auditRowToObj(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    actor: row.actor,
+    action: row.action,
+    targetType: row.target_type,
+    targetId: row.target_id,
+    metadata: row.metadata || {},
+    createdAt: row.created_at
+  };
+}
+
+async function pgAudit(actor, action, targetType, targetId, metadata = {}) {
+  const entry = {
+    id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    actor,
+    action,
+    targetType,
+    targetId,
+    metadata,
+    createdAt: new Date().toISOString()
+  };
+
+  if (pool) {
+    await dbQuery(
+      `INSERT INTO audit_logs (id, actor, action, target_type, target_id, metadata, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [entry.id, actor, action, targetType, targetId, JSON.stringify(metadata), entry.createdAt]
+    );
+  } else {
+    if (!db.audit) db.audit = [];
+    db.audit.unshift(entry);
+  }
+
+  return entry;
+}
+
 function soNormalizePhone(phone = '') {
   const raw = String(phone).trim().replace(/[\s\-().]/g, '');
   if (raw.startsWith('00')) return '+' + raw.slice(2);
