@@ -1,4 +1,5 @@
 import express from 'express';
+import pg from 'pg';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { nanoid } from 'nanoid';
@@ -41,6 +42,87 @@ function soAudit(actor, action, targetType, targetId, metadata = {}) {
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+const pool = process.env.DATABASE_URL
+  ? new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    })
+  : null;
+
+async function dbQuery(sql, params = []) {
+  if (!pool) return null;
+  return pool.query(sql, params);
+}
+
+async function initDb() {
+  if (!pool) {
+    console.log('DATABASE_URL not set. Using in-memory storage only.');
+    return;
+  }
+
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS invites (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      phone TEXT NOT NULL,
+      display_name TEXT,
+      role TEXT,
+      team TEXT,
+      status TEXT,
+      max_uses INTEGER DEFAULT 1,
+      use_count INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ,
+      sent_at TIMESTAMPTZ,
+      used_at TIMESTAMPTZ,
+      used_by TEXT,
+      sms_text TEXT
+    )
+  `);
+
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS users_app (
+      id TEXT PRIMARY KEY,
+      display_name TEXT,
+      phone TEXT UNIQUE,
+      role TEXT,
+      team TEXT,
+      status TEXT,
+      created_at TIMESTAMPTZ
+    )
+  `);
+
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS aircraft (
+      id TEXT PRIMARY KEY,
+      type TEXT,
+      tail TEXT,
+      status TEXT,
+      total_fh REAL DEFAULT 0,
+      since_inspection REAL DEFAULT 0,
+      interval_hours REAL DEFAULT 25,
+      inspection_label TEXT,
+      last_flight TEXT,
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      actor TEXT,
+      action TEXT,
+      target_type TEXT,
+      target_id TEXT,
+      metadata JSONB,
+      created_at TIMESTAMPTZ
+    )
+  `);
+
+  console.log('PostgreSQL tables ready.');
+}
+
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'change-this-admin-token';
 const APP_TOKEN = process.env.APP_TOKEN || 'change-this-app-token';
 
