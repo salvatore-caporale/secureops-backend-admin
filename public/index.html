@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SECUREOPS Admin Console</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg:#0D1117;
+      --panel:#161B22;
+      --panel2:#101820;
+      --border:#30363D;
+      --text:#E6EDF3;
+      --muted:#8B949E;
+      --green:#00FF88;
+      --cyan:#00D4FF;
+      --red:#FF4D4F;
+      --warning:#FFB020;
+    }
+
+    * { box-sizing:border-box; }
+
+    body {
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    header {
+      padding:18px 22px;
+      border-bottom:1px solid var(--border);
+      background:#090D13;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:18px;
+      position:sticky;
+      top:0;
+      z-index:10;
+    }
+
+    h1 {
+      margin:0;
+      font-size:24px;
+      letter-spacing:1.5px;
+    }
+
+    .subtitle {
+      color:var(--muted);
+      font-size:12px;
+      margin-top:4px;
+      letter-spacing:1px;
+    }
+
+    .token-box {
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    input, select, textarea {
+      background:var(--bg);
+      color:var(--text);
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px;
+      width:100%;
+    }
+
+    textarea {
+      min-height:70px;
+      resize:vertical;
+    }
+
+    button {
+      background:var(--green);
+      color:#00130A;
+      border:0;
+      border-radius:10px;
+      padding:10px 14px;
+      font-weight:800;
+      cursor:pointer;
+      margin:4px 4px 4px 0;
+    }
+
+    button.secondary {
+      background:transparent;
+      color:var(--cyan);
+      border:1px solid var(--cyan);
+    }
+
+    button.warning {
+      background:var(--warning);
+    }
+
+    button.danger {
+      background:var(--red);
+      color:#fff;
+    }
+
+    button:disabled {
+      opacity:.45;
+      cursor:not-allowed;
+    }
+
+    nav {
+      display:flex;
+      gap:8px;
+      padding:12px 18px;
+      border-bottom:1px solid var(--border);
+      background:var(--panel);
+      flex-wrap:wrap;
+    }
+
+    nav button {
+      background:var(--panel2);
+      color:var(--text);
+      border:1px solid var(--border);
+    }
+
+    nav button.active {
+      border-color:var(--green);
+      color:var(--green);
+    }
+
+    main {
+      padding:18px;
+      max-width:1300px;
+      margin:0 auto;
+    }
+
+    .grid {
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+      gap:12px;
+    }
+
+    .card {
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:18px;
+      padding:16px;
+      margin-bottom:14px;
+    }
+
+    .item {
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:14px;
+      margin-bottom:10px;
+    }
+
+    .row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+
+    .muted { color:var(--muted); font-size:12px; }
+    .green { color:var(--green); }
+    .cyan { color:var(--cyan); }
+    .red { color:var(--red); }
+    .warningText { color:var(--warning); }
+
+    .pill {
+      display:inline-block;
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:4px 8px;
+      color:var(--muted);
+      font-size:11px;
+      margin:2px;
+    }
+
+    .pill.green { border-color:var(--green); color:var(--green); }
+    .pill.cyan { border-color:var(--cyan); color:var(--cyan); }
+    .pill.warning { border-color:var(--warning); color:var(--warning); }
+    .pill.red { border-color:var(--red); color:var(--red); }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      margin-top:10px;
+    }
+
+    th, td {
+      border-bottom:1px solid var(--border);
+      padding:10px;
+      text-align:left;
+      vertical-align:top;
+      font-size:13px;
+    }
+
+    th {
+      color:var(--cyan);
+      font-size:12px;
+      letter-spacing:.8px;
+    }
+
+    .error {
+      color:var(--red);
+      background:#1A0B0D;
+      border:1px solid var(--red);
+      padding:12px;
+      border-radius:12px;
+      margin-bottom:12px;
+      white-space:pre-wrap;
+    }
+
+    .ok {
+      color:var(--green);
+      background:#071B12;
+      border:1px solid var(--green);
+      padding:12px;
+      border-radius:12px;
+      margin-bottom:12px;
+    }
+
+    .section-title {
+      color:var(--cyan);
+      font-size:12px;
+      font-weight:900;
+      letter-spacing:1.2px;
+      margin:0 0 12px;
+    }
+
+    .small {
+      font-size:12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>SECUREOPS</h1>
+      <div class="subtitle">ADMIN MANAGEMENT CONSOLE</div>
+    </div>
+
+    <div class="token-box">
+      <input id="token" style="width:260px" placeholder="Admin token" value="change-this-admin-token" />
+      <button onclick="saveToken()">Save Token</button>
+      <button class="secondary" onclick="loadAll()">Refresh</button>
+    </div>
+  </header>
+
+  <nav id="nav"></nav>
+
+  <main>
+    <div id="status"></div>
+    <div id="app"></div>
+  </main>
+
+<script>
+const state = {
+  section: 'dashboard',
+  users: [],
+  invites: [],
+  aircraft: [],
+  audit: [],
+  conversations: [],
+  messages: [],
+  channels: []
+};
+
+const sections = [
+  ['dashboard', 'Dashboard'],
+  ['invites', 'Invites'],
+  ['users', 'Users'],
+  ['aircraft', 'Aircraft'],
+  ['messages', 'Messages'],
+  ['audit', 'Audit Logs']
+];
+
+function token() {
+  return document.getElementById('token').value || localStorage.getItem('secureopsAdminToken') || 'change-this-admin-token';
+}
+
+function saveToken() {
+  localStorage.setItem('secureopsAdminToken', document.getElementById('token').value);
+  showOk('Admin token saved.');
+  loadAll();
+}
+
+function showError(err) {
+  const msg = err && err.message ? err.message : String(err);
+  document.getElementById('status').innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
+}
+
+function showOk(msg) {
+  document.getElementById('status').innerHTML = `<div class="ok">${escapeHtml(msg)}</div>`;
+}
+
+function clearStatus() {
+  document.getElementById('status').innerHTML = '';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'","&#039;");
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token()}`,
+      ...(options.headers || {})
+    }
+  });
+
+  let data = null;
+  const txt = await res.text();
+
+  try {
+    data = txt ? JSON.parse(txt) : null;
+  } catch {
+    data = txt;
+  }
+
+  if (!res.ok) {
+    throw new Error(typeof data === 'object' && data && data.error ? data.error : `${res.status} ${res.statusText}`);
+  }
+
+  return data;
+}
+
+async function apiOptional(path, fallback) {
+  try {
+    return await api(path);
+  } catch {
+    return fallback;
+  }
+}
+
+function setSection(section) {
+  state.section = section;
+  render();
+}
+
+function renderNav() {
+  document.getElementById('nav').innerHTML = sections.map(([id,label]) =>
+    `<button class="${state.section === id ? 'active' : ''}" onclick="setSection('${id}')">${label}</button>`
+  ).join('');
+}
+
+async function loadAll() {
+  clearStatus();
+
+  try {
+    state.invites = await apiOptional('/api/admin/invites', []);
+    state.users = await apiOptional('/api/admin/users', []);
+    state.aircraft = await apiOptional('/api/admin/aircraft', []);
+    state.audit = await apiOptional('/api/admin/audit-logs', []);
+    state.conversations = await apiOptional('/api/admin/conversations', []);
+    state.channels = await apiOptional('/api/admin/channels', []);
+
+    // messages may not exist as a single admin endpoint in all backend versions
+    state.messages = await apiOptional('/api/admin/messages', []);
+    render();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+function render() {
+  renderNav();
+
+  const app = document.getElementById('app');
+
+  if (state.section === 'dashboard') app.innerHTML = dashboardHtml();
+  if (state.section === 'invites') app.innerHTML = invitesHtml();
+  if (state.section === 'users') app.innerHTML = usersHtml();
+  if (state.section === 'aircraft') app.innerHTML = aircraftHtml();
+  if (state.section === 'messages') app.innerHTML = messagesHtml();
+  if (state.section === 'audit') app.innerHTML = auditHtml();
+}
+
+function dashboardHtml() {
+  return `
+    <div class="grid">
+      ${metricCard('Active Users', state.users.filter(u => u.status === 'active').length)}
+      ${metricCard('Invites', state.invites.length)}
+      ${metricCard('Aircraft', state.aircraft.length)}
+      ${metricCard('Audit Events', state.audit.length)}
+    </div>
+
+    <div class="card">
+      <h2>System Status</h2>
+      <p class="muted">Admin controls access, users, aircraft, invites, and operational metadata. Message content should remain participant-controlled in the operational model.</p>
+      <button onclick="checkHealth()">Check Health</button>
+    </div>
+
+    <div class="card">
+      <h2>Quick Actions</h2>
+      <button onclick="setSection('invites')">Create Phone Invite</button>
+      <button onclick="setSection('aircraft')">Manage Aircraft</button>
+      <button onclick="setSection('messages')">View Communications Metadata</button>
+    </div>
+  `;
+}
+
+function metricCard(label, value) {
+  return `
+    <div class="card">
+      <div class="muted">${escapeHtml(label)}</div>
+      <div style="font-size:34px;font-weight:900;color:var(--green)">${escapeHtml(value)}</div>
+    </div>
+  `;
+}
+
+async function checkHealth() {
+  try {
+    const data = await fetch('/health').then(r => r.json());
+    showOk(JSON.stringify(data, null, 2));
+  } catch (err) {
+    showError(err);
+  }
+}
+
+function invitesHtml() {
+  return `
+    <div class="card">
+      <h2>Create Phone-Bound Invite</h2>
+      <p class="muted">The access code is assigned to a specific phone number. The app must submit both phone number and code to match the invite.</p>
+
+      <div class="grid">
+        <input id="invitePhone" placeholder="Phone number e.g. +974XXXXXXXX">
+        <input id="inviteName" placeholder="Display name">
+        <select id="inviteRole">
+          <option value="crew">crew</option>
+          <option value="operations">operations</option>
+          <option value="maintenance">maintenance</option>
+          <option value="logistics">logistics</option>
+          <option value="admin">admin</option>
+        </select>
+        <select id="inviteTeam">
+          <option value="Operations">Operations</option>
+          <option value="Maintenance">Maintenance</option>
+          <option value="Logistics">Logistics</option>
+          <option value="Admin">Admin</option>
+        </select>
+        <input id="inviteExpiry" placeholder="Expiry ISO optional">
+      </div>
+
+      <button onclick="createInvite()">Create Invite</button>
+    </div>
+
+    ${state.invites.map(i => `
+      <div class="item">
+        <div class="row">
+          <div>
+            <b>${escapeHtml(i.code)}</b>
+            <span class="pill ${i.status === 'active' ? 'green' : i.status === 'used' ? 'cyan' : 'red'}">${escapeHtml(i.status)}</span>
+            <span class="pill">${escapeHtml(i.role || '')}</span>
+            <span class="pill">${escapeHtml(i.team || '')}</span>
+          </div>
+          <div>
+            <button class="secondary" onclick="copyText('${escapeJs(i.smsText || i.code || '')}')">Copy SMS Text</button>
+            <button class="secondary" onclick="markInviteSent('${escapeJs(i.id)}')">Mark Sent</button>
+            <button class="danger" onclick="revokeInvite('${escapeJs(i.id)}')">Revoke</button>
+          </div>
+        </div>
+
+        <p class="muted">Phone: ${escapeHtml(i.phone || 'not assigned')} • Name: ${escapeHtml(i.displayName || '')}</p>
+        <p class="muted">Expires: ${escapeHtml(i.expiresAt || 'not set')} • Sent: ${escapeHtml(i.sentAt || 'not marked')} • Used: ${escapeHtml(i.usedAt || 'not used')}</p>
+        <textarea readonly>${escapeHtml(i.smsText || '')}</textarea>
+      </div>
+    `).join('')}
+  `;
+}
+
+function escapeJs(value) {
+  return String(value ?? '').replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+}
+
+async function copyText(value) {
+  await navigator.clipboard.writeText(value);
+  showOk('Copied to clipboard.');
+}
+
+async function createInvite() {
+  try {
+    await api('/api/admin/invites', {
+      method:'POST',
+      body: JSON.stringify({
+        phone: document.getElementById('invitePhone').value,
+        displayName: document.getElementById('inviteName').value,
+        role: document.getElementById('inviteRole').value,
+        team: document.getElementById('inviteTeam').value,
+        expiresAt: document.getElementById('inviteExpiry').value || undefined
+      })
+    });
+
+    showOk('Invite created.');
+    await loadAll();
+    state.section = 'invites';
+    render();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+async function markInviteSent(id) {
+  try {
+    await api(`/api/admin/invites/${id}/mark-sent`, { method:'POST' });
+    showOk('Invite marked as sent.');
+    await loadAll();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+async function revokeInvite(id) {
+  try {
+    await api(`/api/admin/invites/${id}/revoke`, { method:'POST' });
+    showOk('Invite revoked.');
+    await loadAll();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+function usersHtml() {
+  return `
+    <div class="card">
+      <h2>Users</h2>
+      <p class="muted">Users are created or activated when a phone-bound invite is successfully validated by the app.</p>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Phone</th>
+          <th>Role</th>
+          <th>Team</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${state.users.map(u => `
+          <tr>
+            <td>${escapeHtml(u.displayName || u.name || u.id)}</td>
+            <td>${escapeHtml(u.phone || '')}</td>
+            <td>${escapeHtml(u.role || '')}</td>
+            <td>${escapeHtml(u.team || '')}</td>
+            <td><span class="pill ${u.status === 'active' ? 'green' : 'red'}">${escapeHtml(u.status || '')}</span></td>
+            <td>
+              <button class="danger" onclick="deactivateUser('${escapeJs(u.id)}')">Deactivate</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function deactivateUser(id) {
+  try {
+    await api(`/api/admin/users/${id}/deactivate`, { method:'POST' });
+    showOk('User deactivated.');
+    await loadAll();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+function aircraftHtml() {
+  return `
+    <div class="card">
+      <h2>Add / Edit Aircraft</h2>
+
+      <div class="grid">
+        <input id="acId" placeholder="Existing ID optional for update">
+        <input id="acType" placeholder="Aircraft type e.g. S-92">
+        <input id="acTail" placeholder="Tail number">
+        <select id="acStatus">
+          <option>Serviceable</option>
+          <option>Limited Serviceable</option>
+          <option>AOG</option>
+        </select>
+        <input id="acTotalFH" placeholder="Total FH">
+        <input id="acSince" placeholder="Hours since inspection">
+        <input id="acInterval" placeholder="Inspection interval">
+        <input id="acLabel" placeholder="Inspection label e.g. 50h Check">
+      </div>
+
+      <button onclick="saveAircraft()">Save Aircraft</button>
+    </div>
+
+    ${state.aircraft.map(a => {
+      const remaining = Number(a.interval || a.inspectionInterval || 0) - Number(a.sinceInspection || a.hoursSinceInspection || 0);
+      return `
+        <div class="item">
+          <div class="row">
+            <div>
+              <h3>${escapeHtml(a.type)} - ${escapeHtml(a.tail)}</h3>
+              <span class="pill ${a.status === 'AOG' ? 'red' : a.status === 'Limited Serviceable' ? 'warning' : 'green'}">${escapeHtml(a.status)}</span>
+              <span class="pill cyan">Remaining ${Number.isFinite(remaining) ? remaining.toFixed(1) : 'N/A'}h</span>
+            </div>
+
+            <div>
+              <button class="secondary" onclick="fillAircraft('${escapeJs(a.id)}')">Edit</button>
+              <button class="secondary" onclick="addFlightPrompt('${escapeJs(a.id)}')">Add Flight</button>
+              <button class="warning" onclick="resetInspection('${escapeJs(a.id)}')">Reset to 25h</button>
+            </div>
+          </div>
+
+          <p class="muted">Total FH: ${escapeHtml(a.totalFH)} • Since Inspection: ${escapeHtml(a.sinceInspection || a.hoursSinceInspection)} • Interval: ${escapeHtml(a.interval || a.inspectionInterval)} • ${escapeHtml(a.inspectionLabel || '')}</p>
+        </div>
+      `;
+    }).join('')}
+  `;
+}
+
+function fillAircraft(id) {
+  const a = state.aircraft.find(x => x.id === id);
+  if (!a) return;
+
+  document.getElementById('acId').value = a.id || '';
+  document.getElementById('acType').value = a.type || '';
+  document.getElementById('acTail').value = a.tail || '';
+  document.getElementById('acStatus').value = a.status || 'Serviceable';
+  document.getElementById('acTotalFH').value = a.totalFH ?? '';
+  document.getElementById('acSince').value = a.sinceInspection ?? a.hoursSinceInspection ?? '';
+  document.getElementById('acInterval').value = a.interval ?? a.inspectionInterval ?? '';
+  document.getElementById('acLabel').value = a.inspectionLabel ?? '';
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+async function saveAircraft() {
+  try {
+    const id = document.getElementById('acId').value.trim();
+
+    const payload = {
+      type: document.getElementById('acType').value.trim(),
+      tail: document.getElementById('acTail').value.trim(),
+      status: document.getElementById('acStatus').value,
+      totalFH: Number(document.getElementById('acTotalFH').value || 0),
+      sinceInspection: Number(document.getElementById('acSince').value || 0),
+      interval: Number(document.getElementById('acInterval').value || 25),
+      inspectionLabel: document.getElementById('acLabel').value.trim()
+    };
+
+    if (id) {
+      await api(`/api/admin/aircraft/${id}`, { method:'PUT', body: JSON.stringify(payload) });
+    } else {
+      await api('/api/admin/aircraft', { method:'POST', body: JSON.stringify(payload) });
+    }
+
+    showOk('Aircraft saved.');
+    await loadAll();
+    state.section = 'aircraft';
+    render();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+async function addFlightPrompt(id) {
+  const value = prompt('Flight hours to add:', '1.0');
+  if (!value) return;
+
+  const note = prompt('Post-flight note:', 'Post-flight update completed.') || '';
+
+  try {
+    await api(`/api/admin/aircraft/${id}/flight`, {
+      method:'POST',
+      body: JSON.stringify({ flightHours: Number(value), note })
+    });
+
+    showOk('Flight hours added.');
+    await loadAll();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+async function resetInspection(id) {
+  if (!confirm('Reset remaining hours to 25h? Total FH will remain unchanged.')) return;
+
+  try {
+    await api(`/api/admin/aircraft/${id}/inspection`, {
+      method:'POST',
+      body: JSON.stringify({ remainingHours: 25, note: 'Inspection completed. Remaining hours reset to 25h.' })
+    });
+
+    showOk('Inspection reset completed.');
+    await loadAll();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+function messagesHtml() {
+  return `
+    <div class="card">
+      <h2>Communications Metadata</h2>
+      <p class="muted">This console should show metadata and structured routing only: DIRECT, GROUP, ALL. It should not expose end-user private message content in a production E2EE model.</p>
+
+      <div class="grid">
+        <button onclick="createAdminBroadcast()">Create ALL Broadcast Metadata</button>
+        <button class="secondary" onclick="loadAll()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Conversations</h3>
+      ${state.conversations.length ? state.conversations.map(c => `
+        <div class="item">
+          <b>${escapeHtml(c.name || c.id)}</b>
+          <span class="pill">${escapeHtml(c.audience || c.type || '')}</span>
+          <p class="muted">Participants: ${escapeHtml((c.participantIds || []).join(', '))}</p>
+        </div>
+      `).join('') : '<p class="muted">No conversations endpoint data available.</p>'}
+    </div>
+
+    <div class="card">
+      <h3>Messages</h3>
+      ${state.messages.length ? state.messages.map(m => `
+        <div class="item">
+          <span class="pill ${m.audience === 'ALL' ? 'warning' : m.audience === 'DIRECT' ? 'cyan' : 'green'}">${escapeHtml(m.audience || m.scope || 'GROUP')}</span>
+          <b>${escapeHtml(m.kind || m.type || 'message')}</b>
+          <p class="muted">Sender: ${escapeHtml(m.senderId || '')} • Conversation: ${escapeHtml(m.conversationId || '')} • ${escapeHtml(m.createdAt || '')}</p>
+        </div>
+      `).join('') : '<p class="muted">No messages endpoint data available.</p>'}
+    </div>
+  `;
+}
+
+async function createAdminBroadcast() {
+  try {
+    const body = prompt('Broadcast text:', 'All personnel: report status.');
+    if (!body) return;
+
+    await api('/api/app/messages', {
+      method:'POST',
+      headers:{ 'Authorization': 'Bearer change-this-app-token' },
+      body: JSON.stringify({
+        conversationId:'conv-all',
+        senderId:'u-admin',
+        kind:'text',
+        body
+      })
+    });
+
+    showOk('Broadcast metadata created.');
+    await loadAll();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+function auditHtml() {
+  return `
+    <div class="card">
+      <h2>Audit Logs</h2>
+      <p class="muted">Tracks admin actions, invite creation/validation, revocation, aircraft updates, and security-relevant metadata.</p>
+    </div>
+
+    ${state.audit.map(a => `
+      <div class="item">
+        <b>${escapeHtml(a.action || a.actionType || '')}</b>
+        <span class="pill">${escapeHtml(a.actor || a.actorUserId || '')}</span>
+        <span class="pill">${escapeHtml(a.targetType || '')}</span>
+        <p class="muted">${escapeHtml(a.createdAt || a.time || '')}</p>
+        <pre class="muted">${escapeHtml(JSON.stringify(a.metadata || {}, null, 2))}</pre>
+      </div>
+    `).join('')}
+  `;
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('secureopsAdminToken');
+  if (saved) document.getElementById('token').value = saved;
+  renderNav();
+  loadAll();
+});
+</script>
+</body>
+</html>
