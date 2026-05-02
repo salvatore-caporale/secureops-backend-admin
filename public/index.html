@@ -530,47 +530,120 @@ async function revokeInvite(id) {
   }
 }
 
+
 function usersHtml() {
   return `
     <div class="card">
-      <h2>Users</h2>
-      <p class="muted">Users are created or activated when a phone-bound invite is successfully validated by the app.</p>
+      <h2>Users & Responsibilities</h2>
+      <p class="muted">Assign user roles and operational responsibilities. Maintenance Responsible users can reset aircraft remaining hours from the app.</p>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Phone</th>
-          <th>Role</th>
-          <th>Team</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.users.map(u => `
-          <tr>
-            <td>${escapeHtml(u.displayName || u.name || u.id)}</td>
-            <td>${escapeHtml(u.phone || '')}</td>
-            <td>${escapeHtml(u.role || '')}</td>
-            <td>${escapeHtml(u.team || '')}</td>
-            <td><span class="pill ${u.status === 'active' ? 'green' : 'red'}">${escapeHtml(u.status || '')}</span></td>
-            <td>
-              <button class="danger" onclick="deactivateUser('${escapeJs(u.id)}')">Deactivate</button>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
+    ${state.users.map(u => `
+      <div class="item">
+        <div class="row">
+          <div>
+            <b>${escapeHtml(u.displayName || u.name || u.id)}</b>
+            <span class="pill ${u.status === 'active' ? 'green' : 'red'}">${escapeHtml(u.status || '')}</span>
+            <span class="pill">${escapeHtml(u.role || '')}</span>
+            <span class="pill">${escapeHtml(u.team || '')}</span>
+          </div>
+          <button class="secondary" onclick="fillUser('${escapeJs(u.id)}')">Edit</button>
+        </div>
+        <p class="muted">Phone: ${escapeHtml(u.phone || '')}</p>
+        <p>
+          ${u.operationsResponsible ? '<span class="pill green">Operations Responsible</span>' : ''}
+          ${u.maintenanceResponsible ? '<span class="pill cyan">Maintenance Responsible</span>' : ''}
+          ${u.logisticsResponsible ? '<span class="pill warning">Logistics Responsible</span>' : ''}
+          ${u.viewer ? '<span class="pill">Viewer</span>' : ''}
+        </p>
+      </div>
+    `).join('')}
+
+    <div class="card">
+      <h2>Edit User</h2>
+      <input id="userId" placeholder="User ID" readonly>
+      <div class="grid">
+        <input id="userDisplayName" placeholder="Display name">
+        <input id="userPhone" placeholder="Phone">
+        <select id="userRole">
+          <option value="crew">crew</option>
+          <option value="operations">operations</option>
+          <option value="maintenance">maintenance</option>
+          <option value="logistics">logistics</option>
+          <option value="admin">admin</option>
+          <option value="viewer">viewer</option>
+        </select>
+        <select id="userTeam">
+          <option value="Operations">Operations</option>
+          <option value="Maintenance">Maintenance</option>
+          <option value="Logistics">Logistics</option>
+          <option value="Admin">Admin</option>
+        </select>
+        <select id="userStatus">
+          <option value="active">active</option>
+          <option value="suspended">suspended</option>
+          <option value="deactivated">deactivated</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <p class="section-title">RESPONSIBILITIES</p>
+        <label><input type="checkbox" id="opsResp"> Operations Responsible</label><br>
+        <label><input type="checkbox" id="maintResp"> Maintenance Responsible</label><br>
+        <label><input type="checkbox" id="logResp"> Logistics Responsible</label><br>
+        <label><input type="checkbox" id="viewerFlag"> Viewer / Read-only</label>
+      </div>
+
+      <button onclick="saveUser()">Save User</button>
+    </div>
   `;
 }
 
-async function deactivateUser(id) {
+function fillUser(id) {
+  const u = state.users.find(x => x.id === id);
+  if (!u) return;
+
+  document.getElementById('userId').value = u.id || '';
+  document.getElementById('userDisplayName').value = u.displayName || u.name || '';
+  document.getElementById('userPhone').value = u.phone || '';
+  document.getElementById('userRole').value = u.role || 'crew';
+  document.getElementById('userTeam').value = u.team || 'Operations';
+  document.getElementById('userStatus').value = u.status || 'active';
+  document.getElementById('opsResp').checked = !!u.operationsResponsible;
+  document.getElementById('maintResp').checked = !!u.maintenanceResponsible;
+  document.getElementById('logResp').checked = !!u.logisticsResponsible;
+  document.getElementById('viewerFlag').checked = !!u.viewer;
+
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+
+async function saveUser() {
   try {
-    await api(`/api/admin/users/${id}/deactivate`, { method:'POST' });
-    showOk('User deactivated.');
+    const id = document.getElementById('userId').value;
+    if (!id) {
+      showError('Select a user first.');
+      return;
+    }
+
+    await api(`/api/admin/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        displayName: document.getElementById('userDisplayName').value,
+        phone: document.getElementById('userPhone').value,
+        role: document.getElementById('userRole').value,
+        team: document.getElementById('userTeam').value,
+        status: document.getElementById('userStatus').value,
+        operationsResponsible: document.getElementById('opsResp').checked,
+        maintenanceResponsible: document.getElementById('maintResp').checked,
+        logisticsResponsible: document.getElementById('logResp').checked,
+        viewer: document.getElementById('viewerFlag').checked
+      })
+    });
+
+    showOk('User updated.');
     await loadAll();
+    state.section = 'users';
+    render();
   } catch (err) {
     showError(err);
   }

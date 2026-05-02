@@ -35,6 +35,10 @@ function userRowToObj(row) {
     role: row.role,
     team: row.team,
     status: row.status,
+    operationsResponsible: !!row.operations_responsible,
+    maintenanceResponsible: !!row.maintenance_responsible,
+    logisticsResponsible: !!row.logistics_responsible,
+    viewer: !!row.viewer,
     createdAt: row.created_at
   };
 }
@@ -178,9 +182,18 @@ async function initDb() {
       role TEXT,
       team TEXT,
       status TEXT,
+      operations_responsible BOOLEAN DEFAULT FALSE,
+      maintenance_responsible BOOLEAN DEFAULT FALSE,
+      logistics_responsible BOOLEAN DEFAULT FALSE,
+      viewer BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ
     )
   `);
+
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS operations_responsible BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
 
   await dbQuery(`
     CREATE TABLE IF NOT EXISTS aircraft (
