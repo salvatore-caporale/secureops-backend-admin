@@ -654,10 +654,32 @@ app.post('/api/app/phone-invites/validate', authApp, (req, res) => {
 async function ensureUsersSchema() {
   if (!pool) return;
 
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS users_app (
+      id TEXT PRIMARY KEY,
+      display_name TEXT,
+      phone TEXT UNIQUE,
+      role TEXT DEFAULT 'crew',
+      team TEXT DEFAULT 'Operations',
+      status TEXT DEFAULT 'active',
+      operations_responsible BOOLEAN DEFAULT FALSE,
+      maintenance_responsible BOOLEAN DEFAULT FALSE,
+      logistics_responsible BOOLEAN DEFAULT FALSE,
+      viewer BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS display_name TEXT`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS phone TEXT UNIQUE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'crew'`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'Operations'`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS operations_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
 }
 
 // -------------------------------------------------------------------
