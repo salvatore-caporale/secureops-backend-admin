@@ -28,6 +28,7 @@ function inviteRowToObj(row) {
 
 function userRowToObj(row) {
   if (!row) return null;
+
   return {
     id: row.id,
     displayName: row.display_name || row.displayName || row.name || '',
@@ -682,8 +683,10 @@ async function ensureUsersSchema() {
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
 }
 
+
+
 // -------------------------------------------------------------------
-// SECUREOPS_USERS_ENDPOINTS_FINAL_V2
+// SECUREOPS USERS ROUTES FINAL
 // -------------------------------------------------------------------
 
 app.get('/api/admin/users', authAdmin, async (req, res) => {
@@ -692,18 +695,7 @@ app.get('/api/admin/users', authAdmin, async (req, res) => {
       await ensureUsersSchema();
 
       const result = await dbQuery(`
-        SELECT
-          id,
-          display_name,
-          phone,
-          role,
-          team,
-          status,
-          COALESCE(operations_responsible, false) AS operations_responsible,
-          COALESCE(maintenance_responsible, false) AS maintenance_responsible,
-          COALESCE(logistics_responsible, false) AS logistics_responsible,
-          COALESCE(viewer, false) AS viewer,
-          created_at
+        SELECT *
         FROM users_app
         ORDER BY created_at DESC NULLS LAST, display_name ASC
       `);
@@ -714,7 +706,10 @@ app.get('/api/admin/users', authAdmin, async (req, res) => {
     return res.json(db.users || []);
   } catch (err) {
     console.error('Failed to load admin users:', err);
-    return res.status(500).json({ error: 'Failed to load users' });
+    return res.status(500).json({
+      error: 'Failed to load users',
+      detail: err.message
+    });
   }
 });
 
@@ -724,18 +719,7 @@ app.get('/api/app/users', authApp, async (req, res) => {
       await ensureUsersSchema();
 
       const result = await dbQuery(`
-        SELECT
-          id,
-          display_name,
-          phone,
-          role,
-          team,
-          status,
-          COALESCE(operations_responsible, false) AS operations_responsible,
-          COALESCE(maintenance_responsible, false) AS maintenance_responsible,
-          COALESCE(logistics_responsible, false) AS logistics_responsible,
-          COALESCE(viewer, false) AS viewer,
-          created_at
+        SELECT *
         FROM users_app
         WHERE status='active'
         ORDER BY display_name ASC
@@ -747,123 +731,8 @@ app.get('/api/app/users', authApp, async (req, res) => {
     return res.json((db.users || []).filter(u => u.status === 'active'));
   } catch (err) {
     console.error('Failed to load app users:', err);
-    return res.status(500).json({ error: 'Failed to load app users' });
-  }
-});
-
-
-
-// -------------------------------------------------------------------
-// DATABASE DEBUG INIT - SECUREOPS
-// -------------------------------------------------------------------
-app.post('/api/admin/db/init', authAdmin, async (req, res) => {
-  try {
-    if (!pool) {
-      return res.status(500).json({ error: 'DATABASE_URL not configured' });
-    }
-
-    await dbQuery(`
-      CREATE TABLE IF NOT EXISTS users_app (
-        id TEXT PRIMARY KEY,
-        display_name TEXT,
-        phone TEXT UNIQUE,
-        role TEXT DEFAULT 'crew',
-        team TEXT DEFAULT 'Operations',
-        status TEXT DEFAULT 'active',
-        operations_responsible BOOLEAN DEFAULT FALSE,
-        maintenance_responsible BOOLEAN DEFAULT FALSE,
-        logistics_responsible BOOLEAN DEFAULT FALSE,
-        viewer BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
-
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS display_name TEXT`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS phone TEXT UNIQUE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'crew'`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'Operations'`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS operations_responsible BOOLEAN DEFAULT FALSE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
-
-    const result = await dbQuery(`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-      ORDER BY table_name
-    `);
-
-    return res.json({
-      ok: true,
-      message: 'Database initialized',
-      tables: result.rows.map(r => r.table_name)
-    });
-  } catch (err) {
-    console.error('DB init failed:', err);
     return res.status(500).json({
-      error: 'DB init failed',
-      detail: err.message
-    });
-  }
-});
-
-
-
-// -------------------------------------------------------------------
-// DATABASE INIT ROUTE - SECUREOPS USERS
-// -------------------------------------------------------------------
-app.post('/api/admin/db/init-users', authAdmin, async (req, res) => {
-  try {
-    if (!pool) {
-      return res.status(500).json({ error: 'DATABASE_URL not configured' });
-    }
-
-    await dbQuery(`
-      CREATE TABLE IF NOT EXISTS users_app (
-        id TEXT PRIMARY KEY,
-        display_name TEXT,
-        phone TEXT UNIQUE,
-        role TEXT DEFAULT 'crew',
-        team TEXT DEFAULT 'Operations',
-        status TEXT DEFAULT 'active',
-        operations_responsible BOOLEAN DEFAULT FALSE,
-        maintenance_responsible BOOLEAN DEFAULT FALSE,
-        logistics_responsible BOOLEAN DEFAULT FALSE,
-        viewer BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
-
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS display_name TEXT`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS phone TEXT UNIQUE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'crew'`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'Operations'`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS operations_responsible BOOLEAN DEFAULT FALSE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
-    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
-
-    const result = await dbQuery(`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema='public'
-      ORDER BY table_name
-    `);
-
-    return res.json({
-      ok: true,
-      message: 'users_app table initialized',
-      tables: result.rows.map(r => r.table_name)
-    });
-  } catch (err) {
-    console.error('users_app init failed:', err);
-    return res.status(500).json({
-      error: 'users_app init failed',
+      error: 'Failed to load app users',
       detail: err.message
     });
   }

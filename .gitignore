@@ -3,5 +3,8 @@ node_modules/
 .DS_Store
 npm-debug.log*
 *.backup.*
-server.backup.*
-public/*.backup.*
+server.backup*.js
+public/*.backup*.html
+backups/
+app.json
+eas.json
