@@ -649,4 +649,49 @@ app.post('/api/app/phone-invites/validate', authApp, (req, res) => {
   });
 });
 
+
+// -------------------------------------------------------------------
+// SECUREOPS_USERS_ENDPOINTS_FINAL_V2
+// -------------------------------------------------------------------
+
+app.get('/api/admin/users', authAdmin, async (req, res) => {
+  try {
+    if (pool) {
+      const result = await dbQuery(`
+        SELECT *
+        FROM users_app
+        ORDER BY created_at DESC NULLS LAST, display_name ASC
+      `);
+
+      return res.json(result.rows.map(userRowToObj));
+    }
+
+    return res.json(db.users || []);
+  } catch (err) {
+    console.error('Failed to load admin users:', err);
+    return res.status(500).json({ error: 'Failed to load users' });
+  }
+});
+
+app.get('/api/app/users', authApp, async (req, res) => {
+  try {
+    if (pool) {
+      const result = await dbQuery(`
+        SELECT *
+        FROM users_app
+        WHERE status='active'
+        ORDER BY display_name ASC
+      `);
+
+      return res.json(result.rows.map(userRowToObj));
+    }
+
+    return res.json((db.users || []).filter(u => u.status === 'active'));
+  } catch (err) {
+    console.error('Failed to load app users:', err);
+    return res.status(500).json({ error: 'Failed to load app users' });
+  }
+});
+
+
 app.listen(PORT, '0.0.0.0', () => console.log(`SECUREOPS backend/admin running on http://localhost:${PORT}`));
