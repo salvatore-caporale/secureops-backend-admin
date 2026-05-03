@@ -28,18 +28,19 @@ function inviteRowToObj(row) {
 
 function userRowToObj(row) {
   if (!row) return null;
+
   return {
     id: row.id,
-    displayName: row.display_name,
-    phone: row.phone,
-    role: row.role,
-    team: row.team,
-    status: row.status,
-    operationsResponsible: !!row.operations_responsible,
-    maintenanceResponsible: !!row.maintenance_responsible,
-    logisticsResponsible: !!row.logistics_responsible,
-    viewer: !!row.viewer,
-    createdAt: row.created_at
+    displayName: row.display_name || row.displayName || row.name || '',
+    phone: row.phone || '',
+    role: row.role || 'crew',
+    team: row.team || 'Operations',
+    status: row.status || 'active',
+    operationsResponsible: Boolean(row.operations_responsible || row.operationsResponsible || false),
+    maintenanceResponsible: Boolean(row.maintenance_responsible || row.maintenanceResponsible || false),
+    logisticsResponsible: Boolean(row.logistics_responsible || row.logisticsResponsible || false),
+    viewer: Boolean(row.viewer || false),
+    createdAt: row.created_at || row.createdAt || null
   };
 }
 
@@ -658,7 +659,18 @@ app.get('/api/admin/users', authAdmin, async (req, res) => {
   try {
     if (pool) {
       const result = await dbQuery(`
-        SELECT *
+        SELECT
+          id,
+          display_name,
+          phone,
+          role,
+          team,
+          status,
+          COALESCE(operations_responsible, false) AS operations_responsible,
+          COALESCE(maintenance_responsible, false) AS maintenance_responsible,
+          COALESCE(logistics_responsible, false) AS logistics_responsible,
+          COALESCE(viewer, false) AS viewer,
+          created_at
         FROM users_app
         ORDER BY created_at DESC NULLS LAST, display_name ASC
       `);
@@ -677,7 +689,18 @@ app.get('/api/app/users', authApp, async (req, res) => {
   try {
     if (pool) {
       const result = await dbQuery(`
-        SELECT *
+        SELECT
+          id,
+          display_name,
+          phone,
+          role,
+          team,
+          status,
+          COALESCE(operations_responsible, false) AS operations_responsible,
+          COALESCE(maintenance_responsible, false) AS maintenance_responsible,
+          COALESCE(logistics_responsible, false) AS logistics_responsible,
+          COALESCE(viewer, false) AS viewer,
+          created_at
         FROM users_app
         WHERE status='active'
         ORDER BY display_name ASC
