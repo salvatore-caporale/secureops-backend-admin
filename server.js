@@ -811,4 +811,63 @@ app.post('/api/admin/db/init', authAdmin, async (req, res) => {
 });
 
 
+
+// -------------------------------------------------------------------
+// DATABASE INIT ROUTE - SECUREOPS USERS
+// -------------------------------------------------------------------
+app.post('/api/admin/db/init-users', authAdmin, async (req, res) => {
+  try {
+    if (!pool) {
+      return res.status(500).json({ error: 'DATABASE_URL not configured' });
+    }
+
+    await dbQuery(`
+      CREATE TABLE IF NOT EXISTS users_app (
+        id TEXT PRIMARY KEY,
+        display_name TEXT,
+        phone TEXT UNIQUE,
+        role TEXT DEFAULT 'crew',
+        team TEXT DEFAULT 'Operations',
+        status TEXT DEFAULT 'active',
+        operations_responsible BOOLEAN DEFAULT FALSE,
+        maintenance_responsible BOOLEAN DEFAULT FALSE,
+        logistics_responsible BOOLEAN DEFAULT FALSE,
+        viewer BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS display_name TEXT`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS phone TEXT UNIQUE`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'crew'`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'Operations'`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS operations_responsible BOOLEAN DEFAULT FALSE`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
+    await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
+
+    const result = await dbQuery(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema='public'
+      ORDER BY table_name
+    `);
+
+    return res.json({
+      ok: true,
+      message: 'users_app table initialized',
+      tables: result.rows.map(r => r.table_name)
+    });
+  } catch (err) {
+    console.error('users_app init failed:', err);
+    return res.status(500).json({
+      error: 'users_app init failed',
+      detail: err.message
+    });
+  }
+});
+
+
 app.listen(PORT, '0.0.0.0', () => console.log(`SECUREOPS backend/admin running on http://localhost:${PORT}`));
