@@ -28,7 +28,6 @@ function inviteRowToObj(row) {
 
 function userRowToObj(row) {
   if (!row) return null;
-
   return {
     id: row.id,
     displayName: row.display_name || row.displayName || row.name || '',
@@ -651,6 +650,16 @@ app.post('/api/app/phone-invites/validate', authApp, (req, res) => {
 });
 
 
+
+async function ensureUsersSchema() {
+  if (!pool) return;
+
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS operations_responsible BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
+}
+
 // -------------------------------------------------------------------
 // SECUREOPS_USERS_ENDPOINTS_FINAL_V2
 // -------------------------------------------------------------------
@@ -658,6 +667,8 @@ app.post('/api/app/phone-invites/validate', authApp, (req, res) => {
 app.get('/api/admin/users', authAdmin, async (req, res) => {
   try {
     if (pool) {
+      await ensureUsersSchema();
+
       const result = await dbQuery(`
         SELECT
           id,
@@ -688,6 +699,8 @@ app.get('/api/admin/users', authAdmin, async (req, res) => {
 app.get('/api/app/users', authApp, async (req, res) => {
   try {
     if (pool) {
+      await ensureUsersSchema();
+
       const result = await dbQuery(`
         SELECT
           id,
