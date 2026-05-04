@@ -391,7 +391,82 @@ app.post('/api/admin/invites/:id/mark-sent', authAdmin, (req, res) => {
 });
 
 app.post('/api/admin/users', authAdmin, (req, res) => { const u = { id: nanoid(), displayName: req.body.displayName || 'New User', role: req.body.role || 'crew', status: 'active' }; db.users.push(u); audit('admin','user.created','user',u.id); res.json(u); });
-app.put('/api/admin/users/:id', authAdmin, (req,res)=> { const u=db.users.find(x=>x.id===req.params.id); if(!u) return res.status(404).json({error:'Not found'}); Object.assign(u, req.body); audit('admin','user.updated','user',u.id,req.body); res.json(u); });
+app.put('/api/admin/users/:id', authAdmin, async (req, res) => {
+  const updates = {
+    displayName: req.body.displayName,
+    phone: req.body.phone,
+    role: req.body.role,
+    team: req.body.team,
+    status: req.body.status,
+    operationsResponsible: req.body.operationsResponsible,
+    maintenanceResponsible: req.body.maintenanceResponsible,
+    logisticsResponsible: req.body.logisticsResponsible,
+    viewer: req.body.viewer
+  };
+
+  try {
+    if (pool) {
+      await ensureUsersSchema();
+
+      const result = await dbQuery(
+        `
+          UPDATE users_app
+          SET
+            display_name = COALESCE($2, display_name),
+            phone = COALESCE($3, phone),
+            role = COALESCE($4, role),
+            team = COALESCE($5, team),
+            status = COALESCE($6, status),
+            operations_responsible = COALESCE($7, operations_responsible),
+            maintenance_responsible = COALESCE($8, maintenance_responsible),
+            logistics_responsible = COALESCE($9, logistics_responsible),
+            viewer = COALESCE($10, viewer)
+          WHERE id = $1
+          RETURNING *
+        `,
+        [
+          req.params.id,
+          updates.displayName ?? null,
+          updates.phone !== undefined ? normalizePhone(updates.phone) : null,
+          updates.role ?? null,
+          updates.team ?? null,
+          updates.status ?? null,
+          updates.operationsResponsible ?? null,
+          updates.maintenanceResponsible ?? null,
+          updates.logisticsResponsible ?? null,
+          updates.viewer ?? null
+        ]
+      );
+
+      if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
+
+      await pgAudit('admin', 'user.updated', 'user', req.params.id, updates);
+      return res.json(userRowToObj(result.rows[0]));
+    }
+
+    const u = db.users.find(x => x.id === req.params.id);
+    if (!u) return res.status(404).json({ error: 'Not found' });
+
+    if (updates.displayName !== undefined) u.displayName = updates.displayName;
+    if (updates.phone !== undefined) u.phone = normalizePhone(updates.phone);
+    if (updates.role !== undefined) u.role = updates.role;
+    if (updates.team !== undefined) u.team = updates.team;
+    if (updates.status !== undefined) u.status = updates.status;
+    if (updates.operationsResponsible !== undefined) u.operationsResponsible = updates.operationsResponsible;
+    if (updates.maintenanceResponsible !== undefined) u.maintenanceResponsible = updates.maintenanceResponsible;
+    if (updates.logisticsResponsible !== undefined) u.logisticsResponsible = updates.logisticsResponsible;
+    if (updates.viewer !== undefined) u.viewer = updates.viewer;
+
+    audit('admin', 'user.updated', 'user', u.id, updates);
+    return res.json(userRowToObj(u));
+  } catch (err) {
+    console.error('Failed to update admin user:', err);
+    return res.status(500).json({
+      error: 'Failed to update user',
+      detail: err.message
+    });
+  }
+});
 app.post('/api/admin/users/:id/deactivate', authAdmin, (req,res)=> { const u=db.users.find(x=>x.id===req.params.id); if(!u) return res.status(404).json({error:'Not found'}); u.status='deactivated'; audit('admin','user.deactivated','user',u.id); res.json(u); });
 
 app.post('/api/admin/channels', authAdmin, (req,res)=> { const ch={ id:nanoid(), name:req.body.name||'New Channel', type:'group', scope:req.body.scope||'custom', memberIds:req.body.memberIds||[], archived:false }; db.channels.push(ch); db.conversations.push({ id:`conv-${ch.id}`, type:'group', name:ch.name, audience: ch.scope === 'all' ? 'all' : 'group', participantIds:ch.memberIds, channelId:ch.id, createdAt:now() }); audit('admin','channel.created','channel',ch.id); res.json(ch); });
