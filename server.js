@@ -3,6 +3,7 @@ import pg from 'pg';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { nanoid } from 'nanoid';
+import { Expo } from 'expo-server-sdk';
 
 
 function inviteRowToObj(row) {
@@ -74,7 +75,7 @@ function auditRowToObj(row) {
 }
 
 function isValidExpoPushToken(token) {
-  return /^Expo(nent)?PushToken\[[A-Za-z0-9_-]+\]$/.test(String(token || '').trim());
+  return Expo.isExpoPushToken(String(token || '').trim());
 }
 
 function genericPushBody(unreadCount) {
@@ -145,6 +146,7 @@ function soAudit(actor, action, targetType, targetId, metadata = {}) {
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 8080;
+const expo = new Expo();
 
 const pool = process.env.DATABASE_URL
   ? new pg.Pool({
@@ -416,28 +418,12 @@ async function sendExpoPushNotifications(tokens, unreadCount) {
   }));
 
   if (!messages.length) return [];
-  if (typeof fetch !== 'function') throw new Error('Fetch API is not available in this Node runtime');
 
   const responses = [];
 
-  for (let i = 0; i < messages.length; i += 100) {
-    const chunk = messages.slice(i, i + 100);
-    const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Accept-Encoding': 'gzip, deflate',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(chunk)
-    });
-
-    const data = await expoResponse.json().catch(() => ({}));
-    responses.push({ ok: expoResponse.ok, status: expoResponse.status, data });
-
-    if (!expoResponse.ok) {
-      throw new Error(`Expo push send failed with status ${expoResponse.status}`);
-    }
+  for (const chunk of expo.chunkPushNotifications(messages)) {
+    const tickets = await expo.sendPushNotificationsAsync(chunk);
+    responses.push(...tickets);
   }
 
   return responses;
