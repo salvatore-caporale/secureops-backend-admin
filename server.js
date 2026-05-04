@@ -73,6 +73,15 @@ function auditRowToObj(row) {
   };
 }
 
+function isValidExpoPushToken(token) {
+  return /^Expo(nent)?PushToken\[[A-Za-z0-9_-]+\]$/.test(String(token || '').trim());
+}
+
+function genericPushBody(unreadCount) {
+  const count = Number(unreadCount || 0);
+  return count > 1 ? `${count} new updates` : 'New update';
+}
+
 async function pgAudit(actor, action, targetType, targetId, metadata = {}) {
   const entry = {
     id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -230,6 +239,25 @@ async function initDb() {
     )
   `);
 
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS push_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      platform TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS id TEXT`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS user_id TEXT`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS token TEXT`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS platform TEXT`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await dbQuery(`CREATE UNIQUE INDEX IF NOT EXISTS push_tokens_token_idx ON push_tokens (token)`);
+
   console.log('PostgreSQL tables ready.');
 }
 
@@ -329,6 +357,90 @@ async function listAppUsers(activeOnly = false) {
 
   const users = db.users || [];
   return activeOnly ? users.filter(u => u.status === 'active') : users;
+}
+
+async function ensurePushTokenSchema() {
+  if (!pool) return;
+
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS push_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      platform TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS id TEXT`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS user_id TEXT`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS token TEXT`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS platform TEXT`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
+  await dbQuery(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await dbQuery(`CREATE UNIQUE INDEX IF NOT EXISTS push_tokens_token_idx ON push_tokens (token)`);
+}
+
+async function listPushTokens(userId) {
+  if (pool) {
+    await ensurePushTokenSchema();
+
+    const params = [];
+    const where = userId ? 'WHERE user_id = $1' : '';
+    if (userId) params.push(userId);
+
+    const result = await dbQuery(
+      `
+        SELECT *
+        FROM push_tokens
+        ${where}
+        ORDER BY updated_at DESC NULLS LAST
+      `,
+      params
+    );
+
+    return result.rows;
+  }
+
+  const tokens = db.pushTokens || [];
+  return userId ? tokens.filter(t => t.userId === userId) : tokens;
+}
+
+async function sendExpoPushNotifications(tokens, unreadCount) {
+  const messages = tokens.map(t => ({
+    to: t.token,
+    title: 'SECUREOPS',
+    body: genericPushBody(unreadCount),
+    sound: 'default'
+  }));
+
+  if (!messages.length) return [];
+  if (typeof fetch !== 'function') throw new Error('Fetch API is not available in this Node runtime');
+
+  const responses = [];
+
+  for (let i = 0; i < messages.length; i += 100) {
+    const chunk = messages.slice(i, i + 100);
+    const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(chunk)
+    });
+
+    const data = await expoResponse.json().catch(() => ({}));
+    responses.push({ ok: expoResponse.ok, status: expoResponse.status, data });
+
+    if (!expoResponse.ok) {
+      throw new Error(`Expo push send failed with status ${expoResponse.status}`);
+    }
+  }
+
+  return responses;
 }
 
 app.get('/health', (_, res) => res.json({ ok: true, service: 'SECUREOPS backend', version: '0.2.0' }));
@@ -469,6 +581,42 @@ app.put('/api/admin/users/:id', authAdmin, async (req, res) => {
 });
 app.post('/api/admin/users/:id/deactivate', authAdmin, (req,res)=> { const u=db.users.find(x=>x.id===req.params.id); if(!u) return res.status(404).json({error:'Not found'}); u.status='deactivated'; audit('admin','user.deactivated','user',u.id); res.json(u); });
 
+app.post('/api/admin/push/test', authAdmin, async (req, res) => {
+  const userId = req.body.userId ? String(req.body.userId).trim() : '';
+  const unreadCount = Math.max(0, Number(req.body.unreadCount || 0));
+
+  try {
+    const tokens = await listPushTokens(userId || null);
+    const validTokens = tokens.filter(t => isValidExpoPushToken(t.token));
+    const expoResponses = await sendExpoPushNotifications(validTokens, unreadCount);
+
+    const metadata = {
+      userId: userId || 'all',
+      unreadCount,
+      tokenCount: validTokens.length
+    };
+
+    if (pool) {
+      await pgAudit('admin', 'push.test_sent', 'push', userId || 'all', metadata);
+    } else {
+      audit('admin', 'push.test_sent', 'push', userId || 'all', metadata);
+    }
+
+    return res.json({
+      ok: true,
+      sent: validTokens.length,
+      skippedInvalid: tokens.length - validTokens.length,
+      expoResponses
+    });
+  } catch (err) {
+    console.error('Failed to send test push:', err);
+    return res.status(500).json({
+      error: 'Failed to send test push',
+      detail: err.message
+    });
+  }
+});
+
 app.post('/api/admin/channels', authAdmin, (req,res)=> { const ch={ id:nanoid(), name:req.body.name||'New Channel', type:'group', scope:req.body.scope||'custom', memberIds:req.body.memberIds||[], archived:false }; db.channels.push(ch); db.conversations.push({ id:`conv-${ch.id}`, type:'group', name:ch.name, audience: ch.scope === 'all' ? 'all' : 'group', participantIds:ch.memberIds, channelId:ch.id, createdAt:now() }); audit('admin','channel.created','channel',ch.id); res.json(ch); });
 app.put('/api/admin/channels/:id', authAdmin, (req,res)=> { const ch=db.channels.find(x=>x.id===req.params.id); if(!ch) return res.status(404).json({error:'Not found'}); Object.assign(ch, req.body); const conv=db.conversations.find(c=>c.channelId===ch.id); if(conv){ conv.name=ch.name; conv.participantIds=ch.memberIds; conv.audience=ch.scope==='all'?'all':'group'; } audit('admin','channel.updated','channel',ch.id,req.body); res.json(ch); });
 
@@ -478,6 +626,92 @@ app.post('/api/admin/aircraft/:id/flight', authAdmin, (req,res)=> { const ac=db.
 app.post('/api/admin/aircraft/:id/inspection', authAdmin, (req,res)=> { const ac=db.aircraft.find(x=>x.id===req.params.id); if(!ac) return res.status(404).json({error:'Not found'}); ac.sinceInspection=0; if(req.body.inspectionLabel) ac.inspectionLabel=req.body.inspectionLabel; audit('admin','aircraft.inspection_reset','aircraft',ac.id); res.json(enrichedAircraft(ac)); });
 
 // App APIs
+app.post('/api/app/push-token', authApp, async (req, res) => {
+  const userId = String(req.body.userId || '').trim();
+  const token = String(req.body.token || '').trim();
+  const platform = String(req.body.platform || '').trim().toLowerCase();
+
+  if (!userId) return res.status(400).json({ error: 'userId is required' });
+  if (!isValidExpoPushToken(token)) return res.status(400).json({ error: 'Valid Expo push token is required' });
+  if (platform && !['android', 'ios', 'web'].includes(platform)) {
+    return res.status(400).json({ error: 'platform must be android, ios, or web' });
+  }
+
+  try {
+    let saved;
+
+    if (pool) {
+      await ensurePushTokenSchema();
+
+      const result = await dbQuery(
+        `
+          INSERT INTO push_tokens (id, user_id, token, platform, created_at, updated_at)
+          VALUES ($1,$2,$3,$4,NOW(),NOW())
+          ON CONFLICT (token)
+          DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            platform = EXCLUDED.platform,
+            updated_at = NOW()
+          RETURNING id, user_id, platform, created_at, updated_at
+        `,
+        [`pt-${nanoid(10)}`, userId, token, platform || null]
+      );
+
+      saved = result.rows[0];
+      await pgAudit('app', 'push_token.registered', 'push_token', saved.id, {
+        userId,
+        platform: platform || null
+      });
+
+      return res.json({
+        id: saved.id,
+        userId: saved.user_id,
+        platform: saved.platform,
+        createdAt: saved.created_at,
+        updatedAt: saved.updated_at
+      });
+    }
+
+    if (!db.pushTokens) db.pushTokens = [];
+    saved = db.pushTokens.find(t => t.token === token);
+
+    if (!saved) {
+      saved = {
+        id: `pt-${nanoid(10)}`,
+        userId,
+        token,
+        platform: platform || null,
+        createdAt: now(),
+        updatedAt: now()
+      };
+      db.pushTokens.push(saved);
+    } else {
+      saved.userId = userId;
+      saved.platform = platform || null;
+      saved.updatedAt = now();
+    }
+
+    audit('app', 'push_token.registered', 'push_token', saved.id, {
+      userId,
+      platform: platform || null
+    });
+
+    return res.json({
+      id: saved.id,
+      userId: saved.userId,
+      platform: saved.platform,
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt
+    });
+  } catch (err) {
+    console.error('Failed to register push token:', err);
+    return res.status(500).json({
+      error: 'Failed to register push token',
+      detail: err.message
+    });
+  }
+});
+
 app.post('/api/app/invites/validate', authApp, (req, res) => {
   const phone = normalizePhone(req.body.phone);
   const code = String(req.body.code || '').trim().toUpperCase();
