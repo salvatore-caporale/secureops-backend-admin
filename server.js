@@ -191,10 +191,17 @@ async function initDb() {
     )
   `);
 
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS id TEXT`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS display_name TEXT`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS phone TEXT UNIQUE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'crew'`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'Operations'`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS operations_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
 
   await dbQuery(`
     CREATE TABLE IF NOT EXISTS aircraft (
@@ -304,6 +311,25 @@ function enrichedAircraft(ac) {
   return { ...ac, remaining: Math.max(Number(ac.interval) - Number(ac.sinceInspection), 0) };
 }
 function userName(id) { return db.users.find(u => u.id === id)?.displayName || id; }
+
+async function listAppUsers(activeOnly = false) {
+  if (pool) {
+    await ensureUsersSchema();
+
+    const where = activeOnly ? `WHERE status='active'` : '';
+    const result = await dbQuery(`
+      SELECT *
+      FROM users_app
+      ${where}
+      ORDER BY created_at DESC NULLS LAST, display_name ASC
+    `);
+
+    return result.rows.map(userRowToObj);
+  }
+
+  const users = db.users || [];
+  return activeOnly ? users.filter(u => u.status === 'active') : users;
+}
 
 app.get('/health', (_, res) => res.json({ ok: true, service: 'SECUREOPS backend', version: '0.2.0' }));
 
@@ -474,7 +500,17 @@ app.post('/api/app/invites/validate', authApp, (req, res) => {
   });
 });
 
-app.get('/api/app/users', authApp, (_,res)=> res.json(db.users.filter(u=>u.status==='active')));
+app.get('/api/app/users', authApp, async (req, res) => {
+  try {
+    return res.json(await listAppUsers(true));
+  } catch (err) {
+    console.error('Failed to load app users:', err);
+    return res.status(500).json({
+      error: 'Failed to load app users',
+      detail: err.message
+    });
+  }
+});
 app.get('/api/app/conversations', authApp, (req,res)=> { const userId=req.query.userId || 'u-ops'; res.json(db.conversations.filter(c=>c.audience==='all' || c.participantIds.includes(userId))); });
 app.post('/api/app/conversations/direct', authApp, (req,res)=> { const { fromUserId='u-ops', toUserId }=req.body; if(!toUserId) return res.status(400).json({error:'toUserId required'}); let conv=db.conversations.find(c=>c.type==='direct' && c.participantIds.includes(fromUserId) && c.participantIds.includes(toUserId)); if(!conv){ conv={ id:nanoid(), type:'direct', name:`${userName(fromUserId)} ↔ ${userName(toUserId)}`, audience:'direct', participantIds:[fromUserId,toUserId], createdAt:now()}; db.conversations.push(conv); audit(fromUserId,'conversation.direct_created','conversation',conv.id,{toUserId}); } res.json(conv); });
 app.get('/api/app/conversations/:id/messages', authApp, (req,res)=> res.json(db.messages.filter(m=>m.conversationId===req.params.id)));
@@ -650,6 +686,228 @@ app.post('/api/app/phone-invites/validate', authApp, (req, res) => {
   });
 });
 
+async function findInviteForOnboarding(code) {
+  if (pool) {
+    const result = await dbQuery(
+      `SELECT * FROM invites WHERE UPPER(code) = $1 LIMIT 1`,
+      [code]
+    );
+
+    if (result.rows[0]) {
+      return { invite: inviteRowToObj(result.rows[0]), source: 'pg' };
+    }
+  }
+
+  const invite = (db.invites || []).find(i => String(i.code).toUpperCase() === code);
+  return invite ? { invite, source: 'memory' } : null;
+}
+
+function inviteExpiredForOnboarding(invite) {
+  const expiresAt = invite.expiresAt || invite.expires_at;
+  return expiresAt && new Date(expiresAt).getTime() < Date.now();
+}
+
+function inviteUseCount(invite) {
+  return Number(invite.useCount ?? invite.use_count ?? 0);
+}
+
+function inviteMaxUses(invite) {
+  return Number(invite.maxUses ?? invite.max_uses ?? 1);
+}
+
+function inviteDisplayName(invite) {
+  return invite.displayName || invite.display_name || 'New SECUREOPS User';
+}
+
+function inviteTeam(invite) {
+  return invite.team || 'Operations';
+}
+
+function inviteRole(invite) {
+  return invite.role || 'crew';
+}
+
+function addUserToMemoryChannels(userId, team) {
+  for (const ch of db.channels || []) {
+    const shouldJoin =
+      ch.scope === 'all' ||
+      String(ch.scope).toLowerCase() === String(team).toLowerCase();
+
+    if (shouldJoin && !ch.memberIds.includes(userId)) ch.memberIds.push(userId);
+  }
+
+  for (const conv of db.conversations || []) {
+    const shouldJoin =
+      conv.audience === 'all' ||
+      String(conv.name).toLowerCase() === String(team).toLowerCase();
+
+    if (shouldJoin && !conv.participantIds.includes(userId)) conv.participantIds.push(userId);
+  }
+}
+
+async function upsertOnboardingUser(invite, phone) {
+  if (pool) {
+    await ensureUsersSchema();
+
+    const result = await dbQuery(
+      `
+        INSERT INTO users_app (
+          id,
+          display_name,
+          phone,
+          role,
+          team,
+          status,
+          operations_responsible,
+          maintenance_responsible,
+          logistics_responsible,
+          viewer,
+          created_at
+        )
+        VALUES ($1,$2,$3,$4,$5,'active',FALSE,FALSE,FALSE,FALSE,NOW())
+        ON CONFLICT (phone)
+        DO UPDATE SET
+          display_name = COALESCE(EXCLUDED.display_name, users_app.display_name),
+          role = COALESCE(EXCLUDED.role, users_app.role),
+          team = COALESCE(EXCLUDED.team, users_app.team),
+          status = 'active'
+        RETURNING *
+      `,
+      [`u-${nanoid(8)}`, inviteDisplayName(invite), phone, inviteRole(invite), inviteTeam(invite)]
+    );
+
+    return userRowToObj(result.rows[0]);
+  }
+
+  if (!db.users) db.users = [];
+  let user = db.users.find(u => soNormalizePhone(u.phone) === phone);
+
+  if (!user) {
+    user = {
+      id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      displayName: inviteDisplayName(invite),
+      phone,
+      role: inviteRole(invite),
+      team: inviteTeam(invite),
+      status: 'active',
+      operationsResponsible: false,
+      maintenanceResponsible: false,
+      logisticsResponsible: false,
+      viewer: false,
+      createdAt: new Date().toISOString()
+    };
+    db.users.push(user);
+  } else {
+    user.displayName = inviteDisplayName(invite) || user.displayName;
+    user.status = 'active';
+    user.role = inviteRole(invite) || user.role;
+    user.team = inviteTeam(invite) || user.team;
+  }
+
+  return userRowToObj(user);
+}
+
+async function markInviteUsedForOnboarding(invite, source, userId) {
+  if (source === 'pg' && pool) {
+    await dbQuery(
+      `UPDATE invites
+       SET use_count = COALESCE(use_count, 0) + 1,
+           status = 'used',
+           used_at = NOW(),
+           used_by = $1
+       WHERE id = $2`,
+      [userId, invite.id]
+    );
+    return;
+  }
+
+  invite.useCount = inviteUseCount(invite) + 1;
+  invite.status = 'used';
+  invite.usedAt = new Date().toISOString();
+  invite.usedBy = userId;
+}
+
+async function validateOnboarding(req, res) {
+  const phone = soNormalizePhone(req.body.phone);
+  const code = String(req.body.code || req.body.inviteCode || '').trim().toUpperCase();
+
+  if (!phone || !code) {
+    return res.status(400).json({ error: 'Phone number and invite code are required' });
+  }
+
+  try {
+    const found = await findInviteForOnboarding(code);
+
+    if (!found) {
+      soAudit('app', 'invite.validation_failed', 'invite', 'unknown', {
+        reason: 'code_not_found',
+        phone
+      });
+      return res.status(401).json({ error: 'Invalid invite code' });
+    }
+
+    const { invite, source } = found;
+
+    if (soNormalizePhone(invite.phone) !== phone) {
+      soAudit('app', 'invite.validation_failed', 'invite', invite.id, {
+        reason: 'phone_mismatch',
+        expected: invite.phone,
+        received: phone
+      });
+      return res.status(401).json({ error: 'Phone number does not match this invite' });
+    }
+
+    if (invite.status !== 'active') {
+      return res.status(401).json({ error: `Invite is ${invite.status}` });
+    }
+
+    if (inviteExpiredForOnboarding(invite)) {
+      invite.status = 'expired';
+      if (source === 'pg' && pool) {
+        await dbQuery(`UPDATE invites SET status = 'expired' WHERE id = $1`, [invite.id]);
+      }
+      return res.status(401).json({ error: 'Invite expired' });
+    }
+
+    if (inviteUseCount(invite) >= inviteMaxUses(invite)) {
+      invite.status = 'used';
+      if (source === 'pg' && pool) {
+        await dbQuery(`UPDATE invites SET status = 'used' WHERE id = $1`, [invite.id]);
+      }
+      return res.status(401).json({ error: 'Invite already used' });
+    }
+
+    const user = await upsertOnboardingUser(invite, phone);
+    await markInviteUsedForOnboarding(invite, source, user.id);
+    addUserToMemoryChannels(user.id, user.team);
+
+    await pgAudit('app', 'invite.validated', 'invite', invite.id, {
+      phone,
+      userId: user.id,
+      role: user.role,
+      team: user.team
+    });
+
+    return res.json({
+      ok: true,
+      user,
+      invite: {
+        id: invite.id,
+        status: 'used',
+        usedAt: source === 'memory' ? invite.usedAt : new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('Failed to validate onboarding:', err);
+    return res.status(500).json({
+      error: 'Failed to validate onboarding',
+      detail: err.message
+    });
+  }
+}
+
+app.post('/api/app/onboarding/validate', authApp, validateOnboarding);
+
 
 
 async function ensureUsersSchema() {
@@ -671,6 +929,7 @@ async function ensureUsersSchema() {
     )
   `);
 
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS id TEXT`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS display_name TEXT`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS phone TEXT UNIQUE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'crew'`);
@@ -691,19 +950,7 @@ async function ensureUsersSchema() {
 
 app.get('/api/admin/users', authAdmin, async (req, res) => {
   try {
-    if (pool) {
-      await ensureUsersSchema();
-
-      const result = await dbQuery(`
-        SELECT *
-        FROM users_app
-        ORDER BY created_at DESC NULLS LAST, display_name ASC
-      `);
-
-      return res.json(result.rows.map(userRowToObj));
-    }
-
-    return res.json(db.users || []);
+    return res.json(await listAppUsers(false));
   } catch (err) {
     console.error('Failed to load admin users:', err);
     return res.status(500).json({
@@ -713,30 +960,7 @@ app.get('/api/admin/users', authAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/app/users', authApp, async (req, res) => {
-  try {
-    if (pool) {
-      await ensureUsersSchema();
 
-      const result = await dbQuery(`
-        SELECT *
-        FROM users_app
-        WHERE status='active'
-        ORDER BY display_name ASC
-      `);
-
-      return res.json(result.rows.map(userRowToObj));
-    }
-
-    return res.json((db.users || []).filter(u => u.status === 'active'));
-  } catch (err) {
-    console.error('Failed to load app users:', err);
-    return res.status(500).json({
-      error: 'Failed to load app users',
-      detail: err.message
-    });
-  }
-});
-
+await initDb();
 
 app.listen(PORT, '0.0.0.0', () => console.log(`SECUREOPS backend/admin running on http://localhost:${PORT}`));
