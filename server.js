@@ -41,6 +41,7 @@ function userRowToObj(row) {
     maintenanceResponsible: Boolean(row.maintenance_responsible || row.maintenanceResponsible || false),
     logisticsResponsible: Boolean(row.logistics_responsible || row.logisticsResponsible || false),
     viewer: Boolean(row.viewer || false),
+    admin: Boolean(row.admin || false),
     createdAt: row.created_at || row.createdAt || null
   };
 }
@@ -198,6 +199,7 @@ async function initDb() {
       maintenance_responsible BOOLEAN DEFAULT FALSE,
       logistics_responsible BOOLEAN DEFAULT FALSE,
       viewer BOOLEAN DEFAULT FALSE,
+      admin BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ
     )
   `);
@@ -212,6 +214,7 @@ async function initDb() {
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS admin BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
 
   await dbQuery(`
@@ -289,7 +292,7 @@ function buildInviteMessage(invite) {
 
 const db = {
   users: [
-    { id: 'u-admin', displayName: 'SECUREOPS Admin', role: 'admin', status: 'active' },
+    { id: 'u-admin', displayName: 'SECUREOPS Admin', role: 'crew', admin: true, status: 'active' },
     { id: 'u-ops', displayName: 'Operations Lead', role: 'operations', status: 'active' },
     { id: 'u-maint', displayName: 'Maintenance Lead', role: 'maintenance', status: 'active' },
     { id: 'u-log', displayName: 'Logistics Lead', role: 'logistics', status: 'active' },
@@ -358,7 +361,8 @@ async function listAppUsers(activeOnly = false) {
   }
 
   const users = db.users || [];
-  return activeOnly ? users.filter(u => u.status === 'active') : users;
+  const filtered = activeOnly ? users.filter(u => u.status === 'active') : users;
+  return filtered.map(userRowToObj);
 }
 
 async function ensurePushTokenSchema() {
@@ -465,6 +469,7 @@ app.post('/api/admin/invites', authAdmin, (req, res) => {
     usedBy: null,
     smsText: ''
   };
+  if (hasOwn(req.body, 'admin')) invite.admin = Boolean(req.body.admin);
 
   invite.smsText = buildInviteMessage(invite);
 
@@ -488,7 +493,7 @@ app.post('/api/admin/invites/:id/mark-sent', authAdmin, (req, res) => {
   res.json(i);
 });
 
-app.post('/api/admin/users', authAdmin, (req, res) => { const u = { id: nanoid(), displayName: req.body.displayName || 'New User', role: req.body.role || 'crew', status: 'active' }; db.users.push(u); audit('admin','user.created','user',u.id); res.json(u); });
+app.post('/api/admin/users', authAdmin, (req, res) => { const u = { id: nanoid(), displayName: req.body.displayName || 'New User', role: req.body.role || 'crew', admin: Boolean(req.body.admin || false), status: 'active' }; db.users.push(u); audit('admin','user.created','user',u.id); res.json(userRowToObj(u)); });
 app.put('/api/admin/users/:id', authAdmin, async (req, res) => {
   const updates = {
     displayName: req.body.displayName,
@@ -499,7 +504,8 @@ app.put('/api/admin/users/:id', authAdmin, async (req, res) => {
     operationsResponsible: req.body.operationsResponsible,
     maintenanceResponsible: req.body.maintenanceResponsible,
     logisticsResponsible: req.body.logisticsResponsible,
-    viewer: req.body.viewer
+    viewer: req.body.viewer,
+    admin: req.body.admin
   };
 
   try {
@@ -518,7 +524,8 @@ app.put('/api/admin/users/:id', authAdmin, async (req, res) => {
             operations_responsible = COALESCE($7, operations_responsible),
             maintenance_responsible = COALESCE($8, maintenance_responsible),
             logistics_responsible = COALESCE($9, logistics_responsible),
-            viewer = COALESCE($10, viewer)
+            viewer = COALESCE($10, viewer),
+            admin = COALESCE($11, admin)
           WHERE id = $1
           RETURNING *
         `,
@@ -532,7 +539,8 @@ app.put('/api/admin/users/:id', authAdmin, async (req, res) => {
           updates.operationsResponsible ?? null,
           updates.maintenanceResponsible ?? null,
           updates.logisticsResponsible ?? null,
-          updates.viewer ?? null
+          updates.viewer ?? null,
+          updates.admin ?? null
         ]
       );
 
@@ -554,6 +562,7 @@ app.put('/api/admin/users/:id', authAdmin, async (req, res) => {
     if (updates.maintenanceResponsible !== undefined) u.maintenanceResponsible = updates.maintenanceResponsible;
     if (updates.logisticsResponsible !== undefined) u.logisticsResponsible = updates.logisticsResponsible;
     if (updates.viewer !== undefined) u.viewer = updates.viewer;
+    if (updates.admin !== undefined) u.admin = updates.admin;
 
     audit('admin', 'user.updated', 'user', u.id, updates);
     return res.json(userRowToObj(u));
@@ -853,6 +862,7 @@ app.post('/api/admin/phone-invites', authAdmin, (req, res) => {
     usedAt: null,
     usedBy: null
   };
+  if (hasOwn(req.body, 'admin')) invite.admin = Boolean(req.body.admin);
 
   invite.smsText = `SECUREOPS access code: ${invite.code}. Assigned to ${invite.phone}. Valid for ${expiryHours} hours.`;
 
@@ -942,20 +952,24 @@ app.post('/api/app/phone-invites/validate', authApp, (req, res) => {
   let user = db.users.find(u => soNormalizePhone(u.phone) === phone);
 
   if (!user) {
+    const admin = inviteAdmin(invite, req.body);
     user = {
       id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       displayName: invite.displayName,
       phone,
       role: invite.role,
       team: invite.team,
+      admin,
       status: 'active',
       createdAt: new Date().toISOString()
     };
     db.users.push(user);
   } else {
+    const adminProvided = hasOwn(invite, 'admin') || hasOwn(req.body, 'admin');
     user.status = 'active';
     user.role = invite.role || user.role;
     user.team = invite.team || user.team;
+    if (adminProvided) user.admin = inviteAdmin(invite, req.body);
   }
 
   invite.useCount = (invite.useCount || 0) + 1;
@@ -1022,6 +1036,16 @@ function inviteRole(invite) {
   return invite.role || 'crew';
 }
 
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function inviteAdmin(invite, requestBody = {}) {
+  if (hasOwn(invite, 'admin')) return Boolean(invite.admin);
+  if (hasOwn(requestBody, 'admin')) return Boolean(requestBody.admin);
+  return false;
+}
+
 function addUserToMemoryChannels(userId, team) {
   for (const ch of db.channels || []) {
     const shouldJoin =
@@ -1040,7 +1064,10 @@ function addUserToMemoryChannels(userId, team) {
   }
 }
 
-async function upsertOnboardingUser(invite, phone) {
+async function upsertOnboardingUser(invite, phone, requestBody = {}) {
+  const admin = inviteAdmin(invite, requestBody);
+  const adminProvided = hasOwn(invite, 'admin') || hasOwn(requestBody, 'admin');
+
   if (pool) {
     await ensureUsersSchema();
 
@@ -1056,19 +1083,21 @@ async function upsertOnboardingUser(invite, phone) {
           operations_responsible,
           maintenance_responsible,
           logistics_responsible,
-          viewer,
-          created_at
-        )
-        VALUES ($1,$2,$3,$4,$5,'active',FALSE,FALSE,FALSE,FALSE,NOW())
+      viewer,
+      admin,
+      created_at
+    )
+        VALUES ($1,$2,$3,$4,$5,'active',FALSE,FALSE,FALSE,FALSE,$6,NOW())
         ON CONFLICT (phone)
         DO UPDATE SET
           display_name = COALESCE(EXCLUDED.display_name, users_app.display_name),
           role = COALESCE(EXCLUDED.role, users_app.role),
           team = COALESCE(EXCLUDED.team, users_app.team),
-          status = 'active'
+          status = 'active',
+          admin = CASE WHEN $7 THEN EXCLUDED.admin ELSE users_app.admin END
         RETURNING *
       `,
-      [`u-${nanoid(8)}`, inviteDisplayName(invite), phone, inviteRole(invite), inviteTeam(invite)]
+      [`u-${nanoid(8)}`, inviteDisplayName(invite), phone, inviteRole(invite), inviteTeam(invite), admin, adminProvided]
     );
 
     return userRowToObj(result.rows[0]);
@@ -1089,6 +1118,7 @@ async function upsertOnboardingUser(invite, phone) {
       maintenanceResponsible: false,
       logisticsResponsible: false,
       viewer: false,
+      admin,
       createdAt: new Date().toISOString()
     };
     db.users.push(user);
@@ -1097,6 +1127,7 @@ async function upsertOnboardingUser(invite, phone) {
     user.status = 'active';
     user.role = inviteRole(invite) || user.role;
     user.team = inviteTeam(invite) || user.team;
+    if (adminProvided) user.admin = admin;
   }
 
   return userRowToObj(user);
@@ -1172,7 +1203,7 @@ async function validateOnboarding(req, res) {
       return res.status(401).json({ error: 'Invite already used' });
     }
 
-    const user = await upsertOnboardingUser(invite, phone);
+    const user = await upsertOnboardingUser(invite, phone, req.body);
     await markInviteUsedForOnboarding(invite, source, user.id);
     addUserToMemoryChannels(user.id, user.team);
 
@@ -1220,6 +1251,7 @@ async function ensureUsersSchema() {
       maintenance_responsible BOOLEAN DEFAULT FALSE,
       logistics_responsible BOOLEAN DEFAULT FALSE,
       viewer BOOLEAN DEFAULT FALSE,
+      admin BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
@@ -1234,6 +1266,7 @@ async function ensureUsersSchema() {
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS maintenance_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS logistics_responsible BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS viewer BOOLEAN DEFAULT FALSE`);
+  await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS admin BOOLEAN DEFAULT FALSE`);
   await dbQuery(`ALTER TABLE users_app ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
 }
 

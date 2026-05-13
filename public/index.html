@@ -441,7 +441,7 @@ function invitesHtml() {
           <option value="operations">operations</option>
           <option value="maintenance">maintenance</option>
           <option value="logistics">logistics</option>
-          <option value="admin">admin</option>
+          <option value="viewer">viewer</option>
         </select>
         <select id="inviteTeam">
           <option value="Operations">Operations</option>
@@ -544,6 +544,7 @@ function usersHtml() {
           <div>
             <b>${escapeHtml(u.displayName || u.name || u.id)}</b>
             <span class="pill ${u.status === 'active' ? 'green' : 'red'}">${escapeHtml(u.status || '')}</span>
+            ${u.admin ? '<span class="pill warning">Admin</span>' : ''}
             <span class="pill">${escapeHtml(u.role || '')}</span>
             <span class="pill">${escapeHtml(u.team || '')}</span>
           </div>
@@ -570,7 +571,6 @@ function usersHtml() {
           <option value="operations">operations</option>
           <option value="maintenance">maintenance</option>
           <option value="logistics">logistics</option>
-          <option value="admin">admin</option>
           <option value="viewer">viewer</option>
         </select>
         <select id="userTeam">
@@ -591,7 +591,8 @@ function usersHtml() {
         <label><input type="checkbox" id="opsResp"> Operations Responsible</label><br>
         <label><input type="checkbox" id="maintResp"> Maintenance Responsible</label><br>
         <label><input type="checkbox" id="logResp"> Logistics Responsible</label><br>
-        <label><input type="checkbox" id="viewerFlag"> Viewer / Read-only</label>
+        <label><input type="checkbox" id="viewerFlag"> Viewer / Read-only</label><br>
+        <label><input type="checkbox" id="adminFlag"> Admin</label>
       </div>
 
       <button onclick="saveUser()">Save User</button>
@@ -613,6 +614,7 @@ function fillUser(id) {
   document.getElementById('maintResp').checked = !!u.maintenanceResponsible;
   document.getElementById('logResp').checked = !!u.logisticsResponsible;
   document.getElementById('viewerFlag').checked = !!u.viewer;
+  document.getElementById('adminFlag').checked = !!u.admin;
 
   window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
@@ -636,7 +638,8 @@ async function saveUser() {
         operationsResponsible: document.getElementById('opsResp').checked,
         maintenanceResponsible: document.getElementById('maintResp').checked,
         logisticsResponsible: document.getElementById('logResp').checked,
-        viewer: document.getElementById('viewerFlag').checked
+        viewer: document.getElementById('viewerFlag').checked,
+        admin: document.getElementById('adminFlag').checked
       })
     });
 
